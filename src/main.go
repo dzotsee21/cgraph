@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,7 +37,19 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
-	path := "./data/saved.txt"
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		panic(err)
+	}
+
+	appDir := filepath.Join(configDir, "cgraph")
+	err = os.MkdirAll(appDir, 0755)
+	if err != nil {
+		panic(err)
+	}
+
+	path := filepath.Join(appDir, "account.txt")
+
 	var accountName string
 
 	if cmd == "change" {
@@ -56,8 +69,6 @@ func main() {
 	}
 
 	if cmd == "checkme" {
-		os.MkdirAll("./data", 0755)
-
 		if exists(path) {
 			data, err := os.ReadFile(path)
 			if err != nil {
