@@ -52,23 +52,20 @@ func main() {
 
 	var accountName string
 
-	if cmd == "change" {
+	switch cmd {
+	case "change":
 		if exists(path) {
 			os.Remove(path)
 		}
 		cmd = "checkme"
-	}
-
-	if cmd == "check" {
+	case "check":
 		if len(args) > 0 {
 			accountName = args[0]
 		} else {
 			fmt.Println("usage: cgraph check <github username>")
 			os.Exit(0)
 		}
-	}
-
-	if cmd == "checkme" {
+	case "checkme":
 		if exists(path) {
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -84,85 +81,32 @@ func main() {
 				panic(err)
 			}
 		}
+	default:
+		fmt.Println("wrong command")
 	}
 
-	client := &http.Client{}
-	contributionsUrl := "https://github.com/users/" + accountName + "/contributions"
-	req, _ := http.NewRequest("GET", contributionsUrl, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.5")	
-	
-	resp, err := client.Do(req)
+	body, err := fetchContributionsPage(accountName)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-
-	re := regexp.MustCompile(`(?s)<tool-tip.*?>.*?</tool-tip>`)
-	sections := re.FindAll(body, -1)
-
-	re1 := regexp.MustCompile(`(?s)<h2.*?>.*?</h2>`)
-	match := re1.Find(body)
-
-
-	var totalDayContributions int
-	var totalContributions int
-	if match != nil {
-		re := regexp.MustCompile(`(?s)</?h2[^>]*>`)
-		clean := re.ReplaceAllString(string(match), "")
-		clean = strings.TrimSpace(clean)
-
-		numRe := regexp.MustCompile(`([\d,]+)`)
-		numStr := numRe.Find([]byte(clean))
-
-		num, _ := strconv.Atoi(strings.Replace(string(numStr), ",", "", -1))
-		totalContributions = num
-	}
-
-	re = regexp.MustCompile(`>(.*?)</tool-tip>`)
-
-	var contributions []string
-	mostContributions := 0
-	for _, section := range sections {
-		match := re.FindStringSubmatch(string(section))
-		if len(match) > 1 {
-			contributionNumStr := fetchContributionNum(match[1])
-			num, _ := strconv.Atoi(contributionNumStr)
-			if num > mostContributions {
-				mostContributions = num
-			}
-			contributionNum := num
-			if contributionNum >= 1 {
-				totalDayContributions++
-			}
-
-			contributions = append(contributions, match[1])
-		}
-	}
-
-	var avgContributions int
-	if totalDayContributions == 0 {
-		avgContributions = 0
-	} else {
-		avgContributions = (totalContributions / totalDayContributions)
-	}
+	contributionsBody, totalContributions, mostContributions, avgContributions := getContributions(body)
 
 	currentMonth := time.Now().Month().String()
 	currentTime := time.Now()
 
-	formattedDate := currentTime.Format(currentMonth + " 2")
-	var todaysContributions string
+	exampleFormat := currentMonth + " 2"
+	formattedDate := currentTime.Format(exampleFormat)
 
+	// get the todaysContributions from iterating contributionsBody once (it's more efficient)
+	var todaysContributions string
 	var graph [][]string
 	r, c := 0, 0
 
-	skipFirst := true
+	skipFirstSamedayContribution := true
 	changeColLimit := false
 	colLimit := 53
-	for _, contribution := range contributions {
+	for _, contribution := range contributionsBody {
 		if len(graph) <= r {
 			graph = append(graph, make([]string, 0, 53))
 		}
@@ -189,8 +133,8 @@ func main() {
 		}
 
 		if strings.Contains(contribution, formattedDate) {
-			if skipFirst {
-				skipFirst = false
+			if skipFirstSamedayContribution {
+				skipFirstSamedayContribution = false
 			} else {
 				todaysContributions = fetchContributionNum(contribution)
 				changeColLimit = true
@@ -219,14 +163,85 @@ func exists(path string) bool {
 	return exists
 }
 
-func block(r, g, b int) string {
-    return fmt.Sprintf("\033[48;2;%d;%d;%dm  \033[0m", r, g, b)
+func fetchContributionsPage(accountName string) ([]byte, error) {
+	client := &http.Client{}
+	contributionsUrl := "https://github.com/users/" + accountName + "/contributions"
+	req, _ := http.NewRequest("GET", contributionsUrl, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")	
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+
+	return body, err
+}
+
+func getContributions(body []byte) ([]string, int, int, int) {
+	re := regexp.MustCompile(`(?s)<tool-tip.*?>.*?</tool-tip>`)
+	sections := re.FindAll(body, -1)
+
+	re1 := regexp.MustCompile(`(?s)<h2.*?>.*?</h2>`)
+	match := re1.Find(body)
+
+	var activeDays int
+	var totalContributions int
+	if match != nil {
+		re := regexp.MustCompile(`(?s)</?h2[^>]*>`)
+		clean := re.ReplaceAllString(string(match), "")
+		clean = strings.TrimSpace(clean)
+
+		numRe := regexp.MustCompile(`([\d,]+)`)
+		numStr := numRe.Find([]byte(clean))
+
+		num, _ := strconv.Atoi(strings.Replace(string(numStr), ",", "", -1))
+		totalContributions = num
+	}
+
+	re = regexp.MustCompile(`>(.*?)</tool-tip>`)
+
+	var contributions []string
+	mostContributions := 0
+	for _, section := range sections {
+		match := re.FindStringSubmatch(string(section))
+		if len(match) > 1 {
+			contributionNumStr := fetchContributionNum(match[1])
+			num, _ := strconv.Atoi(contributionNumStr)
+			if num > mostContributions {
+				mostContributions = num
+			}
+			contributionNum := num
+			if contributionNum >= 1 {
+				activeDays++
+			}
+
+			contributions = append(contributions, match[1])
+		}
+	}
+
+	var avgContributions int
+	if activeDays == 0 {
+		avgContributions = 0
+	} else {
+		avgContributions = (totalContributions / activeDays)
+	}
+
+	return contributions, totalContributions, mostContributions, avgContributions
 }
 
 func fetchContributionNum(contribution string) string {
 	contributionNum := strings.Split(contribution, " ")[0]
 
 	return contributionNum
+}
+
+func block(r, g, b int) string {
+    return fmt.Sprintf("\033[48;2;%d;%d;%dm  \033[0m", r, g, b)
 }
 
 func printGraph(graph [][]string, totalContributions, avgContributions int, todaysContributions, accountName string) {
@@ -244,8 +259,8 @@ func printGraph(graph [][]string, totalContributions, avgContributions int, toda
 	fmt.Println("total contributions: " + strconv.Itoa(totalContributions))
 	fmt.Println("avg. contributions: " +  strconv.Itoa(avgContributions))
 	if todaysContributions != "" {
-		fmt.Println("contributions today: " + todaysContributions)
+		fmt.Println("\ncontributions today: " + todaysContributions)
 	} else {
-		fmt.Println("No contributions today")
+		fmt.Println("\nNo contributions today")
 	}
 }
