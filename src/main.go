@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+type Graph [][]string
+
 var colors = [][]int{
 	{15, 23, 30},   // dark grey
 	{0, 64, 24},    // dark green
@@ -90,22 +92,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	contributionsBody, totalContributions, mostContributions, avgContributions := getContributions(body)
+	formattedDate := getCurrentDate()
 
-	currentMonth := time.Now().Month().String()
-	currentTime := time.Now()
-
-	exampleFormat := currentMonth + " 2"
-	formattedDate := currentTime.Format(exampleFormat)
+	contributionsBody, totalContributions, mostContributions, avgContributions, sameDateCount := getContributions(body, formattedDate)
 
 	// get the todaysContributions from iterating contributionsBody once (it's more efficient)
 	var todaysContributions string
-	var graph [][]string
 	r, c := 0, 0
 
-	skipFirstSamedayContribution := true
+	skipFirstSameDateContribution := true
 	changeColLimit := false
 	colLimit := 53
+	var graph Graph
 	for _, contribution := range contributionsBody {
 		if len(graph) <= r {
 			graph = append(graph, make([]string, 0, 53))
@@ -133,8 +131,8 @@ func main() {
 		}
 
 		if strings.Contains(contribution, formattedDate) {
-			if skipFirstSamedayContribution {
-				skipFirstSamedayContribution = false
+			if sameDateCount > 1 && skipFirstSameDateContribution {
+				skipFirstSameDateContribution = false
 			} else {
 				todaysContributions = fetchContributionNum(contribution)
 				changeColLimit = true
@@ -182,7 +180,17 @@ func fetchContributionsPage(accountName string) ([]byte, error) {
 	return body, err
 }
 
-func getContributions(body []byte) ([]string, int, int, int) {
+func getCurrentDate() string {
+	currentMonth := time.Now().Month().String()
+	currentTime := time.Now()
+
+	exampleFormat := currentMonth + " 2"
+	formattedDate := currentTime.Format(exampleFormat)
+
+	return formattedDate
+}
+
+func getContributions(body []byte, formattedDate string) ([]string, int, int, int, int) {
 	re := regexp.MustCompile(`(?s)<tool-tip.*?>.*?</tool-tip>`)
 	sections := re.FindAll(body, -1)
 
@@ -206,11 +214,17 @@ func getContributions(body []byte) ([]string, int, int, int) {
 	re = regexp.MustCompile(`>(.*?)</tool-tip>`)
 
 	var contributions []string
+	var sameDateCount int
 	mostContributions := 0
 	for _, section := range sections {
 		match := re.FindStringSubmatch(string(section))
 		if len(match) > 1 {
-			contributionNumStr := fetchContributionNum(match[1])
+			contribution := match[1]
+			// hacky way
+			if strings.Contains(contribution, formattedDate) {
+				sameDateCount++
+			}
+			contributionNumStr := fetchContributionNum(contribution)
 			num, _ := strconv.Atoi(contributionNumStr)
 			if num > mostContributions {
 				mostContributions = num
@@ -220,7 +234,7 @@ func getContributions(body []byte) ([]string, int, int, int) {
 				activeDays++
 			}
 
-			contributions = append(contributions, match[1])
+			contributions = append(contributions, contribution)
 		}
 	}
 
@@ -231,7 +245,7 @@ func getContributions(body []byte) ([]string, int, int, int) {
 		avgContributions = (totalContributions / activeDays)
 	}
 
-	return contributions, totalContributions, mostContributions, avgContributions
+	return contributions, totalContributions, mostContributions, avgContributions, sameDateCount
 }
 
 func fetchContributionNum(contribution string) string {
@@ -244,7 +258,7 @@ func block(r, g, b int) string {
     return fmt.Sprintf("\033[48;2;%d;%d;%dm  \033[0m", r, g, b)
 }
 
-func printGraph(graph [][]string, totalContributions, avgContributions int, todaysContributions, accountName string) {
+func printGraph(graph Graph, totalContributions, avgContributions int, todaysContributions, accountName string) {
 	graphStr := ""
 	for _, row := range graph {
 		for _, col := range row {
