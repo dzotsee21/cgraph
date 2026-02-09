@@ -269,7 +269,7 @@ func printGraph(graph Graph, totalContributions, avgContributions int, todaysCon
 
 	fmt.Println(graphStr)
 	fmt.Println("username: " + accountName + "\n")
-	fmt.Println("(this year)")
+	fmt.Println("(in one year)")
 	fmt.Println("total contributions: " + strconv.Itoa(totalContributions))
 	fmt.Println("avg. contributions: " +  strconv.Itoa(avgContributions))
 	if todaysContributions != "" {
